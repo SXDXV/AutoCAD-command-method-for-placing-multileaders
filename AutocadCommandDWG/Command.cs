@@ -54,37 +54,34 @@ namespace AutocadCommandDWG
                             BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
                             BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
-                            if (selectionResult.Status == PromptStatus.OK)
+                            // Переменная для хранения порядкового номера
+                            int orderNumber = 1;
+
+                            foreach (ObjectId objectId in selectionSet.GetObjectIds())
                             {
-                                // Переменная для хранения порядкового номера
-                                int orderNumber = 1;
-
-                                foreach (ObjectId objectId in selectionSet.GetObjectIds())
+                                BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
+                                if (blockRef != null)
                                 {
-                                    BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
-                                    if (blockRef != null)
-                                    {
-                                        MLeader leader = new MLeader();
-                                        leader.SetDatabaseDefaults();
-                                        leader.ContentType = ContentType.MTextContent;
+                                    MLeader leader = new MLeader();
+                                    leader.SetDatabaseDefaults();
+                                    leader.ContentType = ContentType.MTextContent;
 
-                                        MText mText = new MText();
-                                        mText.SetDatabaseDefaults();
-                                        mText.Width = 100;
-                                        mText.Height = 50;
-                                        mText.Contents = orderNumber.ToString(); // Нумеруем выноски
-                                        mText.Location = blockRef.Position.Add(new Vector3d(100, 100, GetBlockHeight(blockRef, tr))); // Поднимаем выноску над блоком
+                                    MText mText = new MText();
+                                    mText.SetDatabaseDefaults();
+                                    mText.TextHeight = 20.0;
+                                    mText.Contents = orderNumber.ToString(); // Нумеруем выноски
+                                    mText.Location = new Point3d(GetBlockHeight(blockRef, tr) + 100, GetBlockHeight(blockRef, tr) + 150, 0); // Поднимаем выноску над блоком
+                                    leader.MText = mText;
 
-                                        leader.MText = mText;
+                                    double blockHalfWidth = GetBlockWidth(blockRef) / 2.0;
+                                    Point3d firstPoint = blockRef.Position.Add(new Vector3d(blockHalfWidth, 0, 0));
+                                    int idx = leader.AddLeaderLine(firstPoint); // Присоединяем линию к первой точке (верху блока)
+                                    leader.AddFirstVertex(idx, mText.Location); // Первая точка - точка выноски
 
-                                        int idx = leader.AddLeaderLine(blockRef.Position.Add(new Vector3d(100, 100, 0))); // Присоединяем линию к блоку
-                                        leader.AddFirstVertex(idx, blockRef.Position);
+                                    modelSpace.AppendEntity(leader);
+                                    tr.AddNewlyCreatedDBObject(leader, true);
 
-                                        modelSpace.AppendEntity(leader);
-                                        tr.AddNewlyCreatedDBObject(leader, true);
-
-                                        orderNumber++;
-                                    }
+                                    orderNumber++;
                                 }
                             }
 
@@ -146,6 +143,17 @@ namespace AutocadCommandDWG
 
             // Возвращаем значение по умолчанию, если атрибут "HEIGHT" не найден
             return 0.0;
+        }
+
+        private double GetBlockWidth(BlockReference blockRef)
+        {
+            // Получаем ограничивающий прямоугольник блока
+            Extents3d extents = blockRef.GeometricExtents;
+
+            // Вычисляем ширину блока по оси X
+            double width = extents.MinPoint.X - extents.MaxPoint.X;
+
+            return width;
         }
     }
 }
