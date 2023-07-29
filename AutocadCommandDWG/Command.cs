@@ -73,7 +73,7 @@ namespace AutocadCommandDWG
                                     mText.Location = new Point3d(GetBlockHeight(blockRef, tr) + 100, GetBlockHeight(blockRef, tr) + 150, 0); // Поднимаем выноску над блоком
                                     leader.MText = mText;
 
-                                    double blockHalfWidth = GetBlockWidth(blockRef) / 2.0;
+                                    double blockHalfWidth = GetBlockWidth(blockRef);
                                     Point3d firstPoint = blockRef.Position.Add(new Vector3d(blockHalfWidth, 0, 0));
                                     int idx = leader.AddLeaderLine(firstPoint); // Присоединяем линию к первой точке (верху блока)
                                     leader.AddFirstVertex(idx, mText.Location); // Первая точка - точка выноски
@@ -151,7 +151,7 @@ namespace AutocadCommandDWG
             Extents3d extents = blockRef.GeometricExtents;
 
             // Вычисляем ширину блока по оси X
-            double width = extents.MinPoint.X - extents.MaxPoint.X;
+            double width = extents.MaxPoint.X - extents.MinPoint.X;
 
             return width;
         }
