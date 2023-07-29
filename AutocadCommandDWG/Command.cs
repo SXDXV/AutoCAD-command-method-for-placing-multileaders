@@ -43,112 +43,117 @@ namespace AutocadCommandDWG
 
             try
             {
-                // Создаем фильтр для выбора только блоков
-                PromptSelectionOptions opts = new PromptSelectionOptions();
-                SelectionFilter filter = new SelectionFilter(
-                    new TypedValue[] { new TypedValue((int)DxfCode.Start, "INSERT") }
-                );
-                PromptSelectionResult selectionResult = ed.GetSelection(opts, filter);
-
-                if (selectionResult.Status == PromptStatus.OK)
-                {
-                    SelectionSet selectionSet = selectionResult.Value;
-                    if (selectionSet.Count > 0)
-                    {
-                        ed.WriteMessage("Были выбраны вхождения блоков.");
-
-                        Database db = doc.Database;
-                        using (Transaction tr = db.TransactionManager.StartTransaction())
-                        {
-                            BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
-                            BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
-
-                            // Переменная для хранения порядкового номера
-                            int actualNumber = 1;
-
-                            foreach (ObjectId objectId in selectionSet.GetObjectIds())
-                            {
-                                int orderNumber = actualNumber;
-                                BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
-                                if (blockRef != null)
-                                {
-                                    // Проверяем, есть ли блок в словаре
-                                    if (blockOrderDict.ContainsKey(blockRef.Name))
-                                    {
-                                        // Если блок уже есть в словаре, берем его порядковый номер
-                                        orderNumber = blockOrderDict[blockRef.Name];
-                                    }
-                                    else
-                                    {
-                                        if (blockOrderDict.Any())
-                                        {
-                                            orderNumber = blockOrderDict.Values.Max()+1;
-                                            // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                            blockOrderDict.Add(blockRef.Name, orderNumber);
-                                        }
-                                        else
-                                        {
-                                            // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                            blockOrderDict.Add(blockRef.Name, orderNumber);
-                                        }
-                                        
-                                    }
-
-                                    double blockHeight = GetBlockHeight(blockRef);
-                                    double blockWidth = GetBlockWidth(blockRef);
-
-                                    MLeader leader = new MLeader();
-                                    leader.SetDatabaseDefaults();
-                                    leader.ContentType = ContentType.MTextContent;
-
-                                    MText mText = new MText();
-                                    mText.SetDatabaseDefaults();
-                                    mText.TextHeight = 20.0;
-                                    mText.Contents = orderNumber.ToString(); // Нумеруем выноски
-
-                                    Point3d mTextPosition = new Point3d(blockRef.Position.X + 15, blockRef.Position.Y + blockHeight, 0);
-                                    mText.Location = mTextPosition;
-                                    leader.MText = mText;
-                                    leader.MLeaderStyle = CustomMLeaderStyle(db);
-
-                                    Point3d firstPoint = new Point3d(blockRef.Position.X, blockRef.Position.Y, 0);
-                                    int idx = leader.AddLeaderLine(firstPoint);
-                                    leader.AddFirstVertex(idx, firstPoint);
-
-                                    modelSpace.AppendEntity(leader);
-                                    tr.AddNewlyCreatedDBObject(leader, true);
-
-                                    actualNumber++;
-                                }
-                            }
-
-                            tr.Commit();
-                        }
-
-                        doc.Editor.Regen();
-                    }
-                    else
-                    {
-                        ed.WriteMessage("Нет выбранных вхождений блоков.");
-                    }
-                }
-                else if (selectionResult.Status == PromptStatus.Cancel)
-                {
-                    ed.WriteMessage("Выбор отменен.");
-                }
-                else if (selectionResult.Status == PromptStatus.None)
-                {
-                    ed.WriteMessage("Ничего не выбрано.");
-                }
-                else if (selectionResult.Status == PromptStatus.Error)
-                {
-                    ed.WriteMessage("Ошибка при выборе.");
-                }
+                Creating(doc, ed);
             }
             catch (System.Exception undefinedError)
             {
                 ed.WriteMessage("Ошибка неопределенного поведения программы. " +
                     "Обратитесь в отдел разработки расширения.\nLOGS: " + undefinedError.ToString());
+            }
+        }
+
+        private void Creating(Document doc, Editor ed)
+        {
+            // Создаем фильтр для выбора только блоков
+            PromptSelectionOptions opts = new PromptSelectionOptions();
+            SelectionFilter filter = new SelectionFilter(
+                new TypedValue[] { new TypedValue((int)DxfCode.Start, "INSERT") }
+            );
+            PromptSelectionResult selectionResult = ed.GetSelection(opts, filter);
+
+            if (selectionResult.Status == PromptStatus.OK)
+            {
+                SelectionSet selectionSet = selectionResult.Value;
+                if (selectionSet.Count > 0)
+                {
+                    ed.WriteMessage("Были выбраны вхождения блоков.");
+
+                    Database db = doc.Database;
+                    using (Transaction tr = db.TransactionManager.StartTransaction())
+                    {
+                        BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                        BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
+
+                        // Переменная для хранения порядкового номера
+                        int actualNumber = 1;
+
+                        foreach (ObjectId objectId in selectionSet.GetObjectIds())
+                        {
+                            int orderNumber = actualNumber;
+                            BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
+                            if (blockRef != null)
+                            {
+                                // Проверяем, есть ли блок в словаре
+                                if (blockOrderDict.ContainsKey(blockRef.Name))
+                                {
+                                    // Если блок уже есть в словаре, берем его порядковый номер
+                                    orderNumber = blockOrderDict[blockRef.Name];
+                                }
+                                else
+                                {
+                                    if (blockOrderDict.Any())
+                                    {
+                                        orderNumber = blockOrderDict.Values.Max() + 1;
+                                        // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
+                                        blockOrderDict.Add(blockRef.Name, orderNumber);
+                                    }
+                                    else
+                                    {
+                                        // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
+                                        blockOrderDict.Add(blockRef.Name, orderNumber);
+                                    }
+
+                                }
+
+                                double blockHeight = GetBlockHeight(blockRef);
+                                double blockWidth = GetBlockWidth(blockRef);
+
+                                MLeader leader = new MLeader();
+                                leader.SetDatabaseDefaults();
+                                leader.ContentType = ContentType.MTextContent;
+
+                                MText mText = new MText();
+                                mText.SetDatabaseDefaults();
+                                mText.TextHeight = 20.0;
+                                mText.Contents = orderNumber.ToString(); // Нумеруем выноски
+
+                                Point3d mTextPosition = new Point3d(blockRef.Position.X + 15, blockRef.Position.Y + blockHeight, 0);
+                                mText.Location = mTextPosition;
+                                leader.MText = mText;
+                                leader.MLeaderStyle = CustomMLeaderStyle(db);
+
+                                Point3d firstPoint = new Point3d(blockRef.Position.X, blockRef.Position.Y, 0);
+                                int idx = leader.AddLeaderLine(firstPoint);
+                                leader.AddFirstVertex(idx, firstPoint);
+
+                                modelSpace.AppendEntity(leader);
+                                tr.AddNewlyCreatedDBObject(leader, true);
+
+                                actualNumber++;
+                            }
+                        }
+
+                        tr.Commit();
+                    }
+
+                    doc.Editor.Regen();
+                }
+                else
+                {
+                    ed.WriteMessage("Нет выбранных вхождений блоков.");
+                }
+            }
+            else if (selectionResult.Status == PromptStatus.Cancel)
+            {
+                ed.WriteMessage("Выбор отменен.");
+            }
+            else if (selectionResult.Status == PromptStatus.None)
+            {
+                ed.WriteMessage("Ничего не выбрано.");
+            }
+            else if (selectionResult.Status == PromptStatus.Error)
+            {
+                ed.WriteMessage("Ошибка при выборе.");
             }
         }
 
