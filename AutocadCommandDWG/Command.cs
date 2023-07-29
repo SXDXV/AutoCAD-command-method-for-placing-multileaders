@@ -11,6 +11,7 @@ using Autodesk.AutoCAD.Geometry;
 using System.Data;
 using System.Data.SQLite;
 using System.Xml.Linq;
+using Autodesk.AutoCAD.Colors;
 
 // Автор проекта - Шевцов Дмитрий (SXDXV)
 
@@ -62,6 +63,9 @@ namespace AutocadCommandDWG
                                 BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
                                 if (blockRef != null)
                                 {
+                                    double blockHeight = GetBlockHeight(blockRef);
+                                    double blockWidth = GetBlockWidth(blockRef);
+
                                     MLeader leader = new MLeader();
                                     leader.SetDatabaseDefaults();
                                     leader.ContentType = ContentType.MTextContent;
@@ -70,13 +74,15 @@ namespace AutocadCommandDWG
                                     mText.SetDatabaseDefaults();
                                     mText.TextHeight = 20.0;
                                     mText.Contents = orderNumber.ToString(); // Нумеруем выноски
-                                    mText.Location = new Point3d(GetBlockHeight(blockRef, tr) + 100, GetBlockHeight(blockRef, tr) + 150, 0); // Поднимаем выноску над блоком
-                                    leader.MText = mText;
 
-                                    double blockHalfWidth = GetBlockWidth(blockRef);
-                                    Point3d firstPoint = blockRef.Position.Add(new Vector3d(blockHalfWidth, 0, 0));
-                                    int idx = leader.AddLeaderLine(firstPoint); // Присоединяем линию к первой точке (верху блока)
-                                    leader.AddFirstVertex(idx, mText.Location); // Первая точка - точка выноски
+                                    Point3d mTextPosition = new Point3d(blockRef.Position.X + 15, blockRef.Position.Y + blockHeight, 0);
+                                    mText.Location = mTextPosition;
+                                    leader.MText = mText;
+                                    leader.MLeaderStyle = CustomMLeaderStyle(db);
+
+                                    Point3d firstPoint = new Point3d(blockRef.Position.X, blockRef.Position.Y, 0);
+                                    int idx = leader.AddLeaderLine(firstPoint);
+                                    leader.AddFirstVertex(idx, firstPoint);
 
                                     modelSpace.AppendEntity(leader);
                                     tr.AddNewlyCreatedDBObject(leader, true);
@@ -115,34 +121,15 @@ namespace AutocadCommandDWG
             }
         }
 
-        private double GetBlockHeight(BlockReference blockRef, Transaction tr)
+        private double GetBlockHeight(BlockReference blockRef)
         {
-            // Получаем имя блока из ссылки на блок
-            string blockName = blockRef.Name;
+            // Получаем ограничивающий прямоугольник блока
+            Extents3d extents = blockRef.GeometricExtents;
 
-            // Получаем определение блока из базы данных чертежа
-            BlockTableRecord blockDef = tr.GetObject(blockRef.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+            // Вычисляем высоту блока по оси Y
+            double height = extents.MaxPoint.Y - extents.MinPoint.Y;
 
-            // Проверяем, есть ли атрибут "HEIGHT" в определении блока
-            if (blockDef != null && blockDef.HasAttributeDefinitions)
-            {
-                foreach (ObjectId attId in blockDef)
-                {
-                    AttributeDefinition attDef = tr.GetObject(attId, OpenMode.ForRead) as AttributeDefinition;
-                    if (attDef != null && attDef.Constant && attDef.Tag.ToUpper() == "HEIGHT")
-                    {
-                        // Находим атрибут "HEIGHT" и возвращаем его значение
-                        using (AttributeReference attRef = new AttributeReference())
-                        {
-                            attRef.SetAttributeFromBlock(attDef, blockRef.BlockTransform);
-                            return attRef.Height;
-                        }
-                    }
-                }
-            }
-
-            // Возвращаем значение по умолчанию, если атрибут "HEIGHT" не найден
-            return 0.0;
+            return height;
         }
 
         private double GetBlockWidth(BlockReference blockRef)
@@ -154,6 +141,30 @@ namespace AutocadCommandDWG
             double width = extents.MaxPoint.X - extents.MinPoint.X;
 
             return width;
+        }
+
+        private ObjectId CustomMLeaderStyle(Database db)
+        {
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                MLeaderStyle mLeaderStyle = new MLeaderStyle();
+
+                // Задаем параметры стиля мультивыноски
+                mLeaderStyle.ArrowSymbolId = ObjectId.Null; // Идентификатор блока для стрелки (может быть изменен на нужный блок)
+                mLeaderStyle.ContentType = ContentType.MTextContent;
+                mLeaderStyle.TextHeight = 3; // Высота текста для цифры мультивыноски
+                mLeaderStyle.EnableLanding = true; // Включаем отображение платформы
+                mLeaderStyle.LandingGap = 10; // Расстояние между текстом и платформой
+
+                // Добавляем стиль мультивыноски в базу данных чертежа
+                DBDictionary mlStyleDict = tr.GetObject(db.MLeaderStyleDictionaryId, OpenMode.ForWrite) as DBDictionary;
+                ObjectId styleId = mlStyleDict.SetAt("CustomMLeaderStyle", mLeaderStyle);
+
+                tr.AddNewlyCreatedDBObject(mLeaderStyle, true);
+                tr.Commit();
+
+                return styleId;
+            }
         }
     }
 }
