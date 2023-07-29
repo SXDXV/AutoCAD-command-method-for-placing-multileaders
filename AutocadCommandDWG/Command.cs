@@ -28,6 +28,8 @@ namespace AutocadCommandDWG
     /// </summary>
     public class Command
     {
+        Dictionary<string, int> blockOrderDict = new Dictionary<string, int>();
+
         /// <summary>
         /// Непосредственно метод взаимодействия с командной строкой, который на данном этапе 
         /// разработки программного обеспечения реализует фунционал обратного отклика пользователю о
@@ -41,7 +43,13 @@ namespace AutocadCommandDWG
 
             try
             {
-                PromptSelectionResult selectionResult = ed.GetSelection();
+                // Создаем фильтр для выбора только блоков
+                PromptSelectionOptions opts = new PromptSelectionOptions();
+                SelectionFilter filter = new SelectionFilter(
+                    new TypedValue[] { new TypedValue((int)DxfCode.Start, "INSERT") }
+                );
+                PromptSelectionResult selectionResult = ed.GetSelection(opts, filter);
+
                 if (selectionResult.Status == PromptStatus.OK)
                 {
                     SelectionSet selectionSet = selectionResult.Value;
@@ -56,13 +64,36 @@ namespace AutocadCommandDWG
                             BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
                             // Переменная для хранения порядкового номера
-                            int orderNumber = 1;
+                            int actualNumber = 1;
 
                             foreach (ObjectId objectId in selectionSet.GetObjectIds())
                             {
+                                int orderNumber = actualNumber;
                                 BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
                                 if (blockRef != null)
                                 {
+                                    // Проверяем, есть ли блок в словаре
+                                    if (blockOrderDict.ContainsKey(blockRef.Name))
+                                    {
+                                        // Если блок уже есть в словаре, берем его порядковый номер
+                                        orderNumber = blockOrderDict[blockRef.Name];
+                                    }
+                                    else
+                                    {
+                                        if (blockOrderDict.Any())
+                                        {
+                                            orderNumber = blockOrderDict.Values.Max()+1;
+                                            // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
+                                            blockOrderDict.Add(blockRef.Name, orderNumber);
+                                        }
+                                        else
+                                        {
+                                            // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
+                                            blockOrderDict.Add(blockRef.Name, orderNumber);
+                                        }
+                                        
+                                    }
+
                                     double blockHeight = GetBlockHeight(blockRef);
                                     double blockWidth = GetBlockWidth(blockRef);
 
@@ -87,7 +118,7 @@ namespace AutocadCommandDWG
                                     modelSpace.AppendEntity(leader);
                                     tr.AddNewlyCreatedDBObject(leader, true);
 
-                                    orderNumber++;
+                                    actualNumber++;
                                 }
                             }
 
