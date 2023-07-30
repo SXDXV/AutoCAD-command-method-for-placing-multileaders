@@ -28,7 +28,8 @@ namespace AutocadCommandDWG
     /// </summary>
     public class Command
     {
-        Dictionary<string, int> blockOrderDict = new Dictionary<string, int>();
+        Dictionary<int, string> actualBlockOrderDict = new Dictionary<int, string>();
+        Dictionary<int, string> selectedBlockOrderDict = new Dictionary<int, string>();
 
         /// <summary>
         /// Непосредственно метод взаимодействия с командной строкой, который на данном этапе 
@@ -41,9 +42,11 @@ namespace AutocadCommandDWG
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
 
+            Creating(doc, ed);
+
             try
             {
-                Creating(doc, ed);
+                //Creating(doc, ed);
             }
             catch (System.Exception undefinedError)
             {
@@ -54,6 +57,7 @@ namespace AutocadCommandDWG
 
         private void Creating(Document doc, Editor ed)
         {
+            actualBlockOrderDict.Clear();
             // Создаем фильтр для выбора только блоков
             PromptSelectionOptions opts = new PromptSelectionOptions();
             SelectionFilter filter = new SelectionFilter(
@@ -71,37 +75,78 @@ namespace AutocadCommandDWG
 
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
-                        BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                        BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForWrite) as BlockTable;
                         BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
                         // Переменная для хранения порядкового номера
                         int actualNumber = 1;
+                        int visualiseNumber = 1;
+
+                        foreach (ObjectId objectId in modelSpace)
+                        {
+                            if (objectId.ObjectClass == RXObject.GetClass(typeof(MLeader)))
+                            {
+                                MLeader leader = tr.GetObject(objectId, OpenMode.ForWrite) as MLeader;
+                                if (leader != null)
+                                {
+                                    // Обработка мультивыносок
+                                    string mTextContents = leader.MText.Contents;
+
+                                    // Проверяем, есть ли значение mTextContents в словаре blockOrderDict
+                                    if (selectedBlockOrderDict.ContainsKey(Convert.ToInt32(mTextContents)))
+                                    {
+                                        actualBlockOrderDict.Add(actualNumber, selectedBlockOrderDict[Convert.ToInt32(mTextContents)]);
+
+                                        //Entity ent = tr.GetObject(leader.ObjectId, OpenMode.ForWrite) as Entity;
+                                        //ent.Erase();
+
+                                        //MText mText = new MText();
+                                        //mText.SetDatabaseDefaults();
+                                        //mText.TextHeight = 20.0;
+                                        //mText.Contents = actualNumber.ToString();
+
+                                        //leader.MText = mText;
+
+                                        actualNumber++;
+                                    }
+                                }
+                            }
+                        }
 
                         foreach (ObjectId objectId in selectionSet.GetObjectIds())
                         {
-                            int orderNumber = actualNumber;
+                            int orderNumber = visualiseNumber;
                             BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
                             if (blockRef != null)
                             {
                                 string blockID = blockRef.XData.AsArray()[2].Value.ToString();
+                                int foundKey = 0;
+
                                 // Проверяем, есть ли блок в словаре
-                                if (blockOrderDict.ContainsKey(blockID))
+                                if (selectedBlockOrderDict.ContainsValue(blockID))
                                 {
+                                    foreach (var kvp in selectedBlockOrderDict)
+                                    {
+                                        if (kvp.Value == blockID)
+                                        {
+                                            foundKey = kvp.Key;
+                                        }
+                                    }
                                     // Если блок уже есть в словаре, берем его порядковый номер
-                                    orderNumber = blockOrderDict[blockID];
+                                    orderNumber = foundKey;
                                 }
                                 else
                                 {
-                                    if (blockOrderDict.Any())
+                                    if (selectedBlockOrderDict.Any())
                                     {
-                                        orderNumber = blockOrderDict.Values.Max() + 1;
+                                        orderNumber = selectedBlockOrderDict.Keys.Max() + 1;
                                         // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                        blockOrderDict.Add(blockID, orderNumber);
+                                        selectedBlockOrderDict.Add(orderNumber, blockID);
                                     }
                                     else
                                     {
                                         // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                        blockOrderDict.Add(blockID, orderNumber);
+                                        selectedBlockOrderDict.Add(orderNumber, blockID);
                                     }
 
                                 }
@@ -109,7 +154,9 @@ namespace AutocadCommandDWG
                                 // Создание MLeader (мультивыноски)
                                 createMleader(orderNumber, blockRef, db, modelSpace, tr);
 
-                                actualNumber++;
+                                visualiseNumber++;
+
+                                CreateTableWithFields(blockRef);
                             }
                         }
 
@@ -135,6 +182,13 @@ namespace AutocadCommandDWG
             {
                 ed.WriteMessage("Ошибка при выборе.");
             }
+
+
+            //foreach (var kvp in actualBlockOrderDict)
+            //{
+            //    selectedBlockOrderDict[kvp.Key] = kvp.Value;
+            //}
+            //oldBlockOrderDict.addRange(actualBlockOrderDict);
         }
 
         private double GetBlockHeight(BlockReference blockRef)
@@ -205,6 +259,81 @@ namespace AutocadCommandDWG
 
             modelSpace.AppendEntity(leader);
             tr.AddNewlyCreatedDBObject(leader, true);
+        }
+
+        public void CreateTableWithFields(BlockReference blockRef)
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            // Задаем параметры таблицы
+            int numRows = 3; // Количество строк
+            int numCols = 4; // Количество столбцов
+            double cellWidth = 50.0; // Ширина ячейки
+            double cellHeight = 10.0; // Высота ячейки
+            double startX = blockRef.Position.X; // Начальная координата X
+            double startY = blockRef.Position.Y - 200.0; // Начальная координата Y
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
+
+                // Создаем таблицу
+                Table table = new Table();
+                table.SetDatabaseDefaults();
+                table.Position = new Point3d(startX, startY, 0.0);
+                table.NumRows = numRows;
+                table.NumColumns = numCols;
+                table.TableStyle = db.Tablestyle;
+                table.GenerateLayout();
+
+                // Добавляем таблицу в пространство модели
+                modelSpace.AppendEntity(table);
+                tr.AddNewlyCreatedDBObject(table, true);
+
+                // Задаем заголовки столбцов
+                table.Cells[0, 0].TextString = "№";
+                table.Cells[0, 1].TextString = "Наименование";
+                table.Cells[0, 2].TextString = "Количество";
+                table.Cells[0, 3].TextString = "Масса";
+
+                // Заполняем таблицу данными
+                for (int row = 1; row < numRows; row++)
+                {
+                    for (int col = 0; col < numCols; col++)
+                    {
+                        Cell cell = table.Cells[row, col];
+                        cell.TextHeight = 20;
+
+                        //// Задаем ширину и высоту ячейки
+                        //cell.Width = cellWidth;
+                        //cell.Height = cellHeight;
+
+                        // Задаем текст для ячейки (пример данных)
+                        switch (col)
+                        {
+                            case 0:
+                                cell.TextString = row.ToString();
+                                break;
+                            case 1:
+                                cell.TextString = $"Item {row}";
+                                break;
+                            case 2:
+                                cell.TextString = "10";
+                                break;
+                            case 3:
+                                cell.TextString = "5 kg";
+                                break;
+                        }
+                    }
+                }
+
+                tr.Commit();
+            }
+
+            ed.Regen(); // Обновляем отображение
         }
     }
 }
