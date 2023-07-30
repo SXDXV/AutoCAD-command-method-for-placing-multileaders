@@ -67,8 +67,8 @@ namespace AutocadCommandDWG
                 if (selectionSet.Count > 0)
                 {
                     ed.WriteMessage("Были выбраны вхождения блоков.");
-
                     Database db = doc.Database;
+
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
                         BlockTable blockTable = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
@@ -83,11 +83,12 @@ namespace AutocadCommandDWG
                             BlockReference blockRef = tr.GetObject(objectId, OpenMode.ForRead) as BlockReference;
                             if (blockRef != null)
                             {
+                                string blockID = blockRef.XData.AsArray()[2].Value.ToString();
                                 // Проверяем, есть ли блок в словаре
-                                if (blockOrderDict.ContainsKey(blockRef.Name))
+                                if (blockOrderDict.ContainsKey(blockID))
                                 {
                                     // Если блок уже есть в словаре, берем его порядковый номер
-                                    orderNumber = blockOrderDict[blockRef.Name];
+                                    orderNumber = blockOrderDict[blockID];
                                 }
                                 else
                                 {
@@ -95,39 +96,18 @@ namespace AutocadCommandDWG
                                     {
                                         orderNumber = blockOrderDict.Values.Max() + 1;
                                         // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                        blockOrderDict.Add(blockRef.Name, orderNumber);
+                                        blockOrderDict.Add(blockID, orderNumber);
                                     }
                                     else
                                     {
                                         // Если блока еще нет в словаре, добавляем его с текущим порядковым номером
-                                        blockOrderDict.Add(blockRef.Name, orderNumber);
+                                        blockOrderDict.Add(blockID, orderNumber);
                                     }
 
                                 }
 
-                                double blockHeight = GetBlockHeight(blockRef);
-                                double blockWidth = GetBlockWidth(blockRef);
-
-                                MLeader leader = new MLeader();
-                                leader.SetDatabaseDefaults();
-                                leader.ContentType = ContentType.MTextContent;
-
-                                MText mText = new MText();
-                                mText.SetDatabaseDefaults();
-                                mText.TextHeight = 20.0;
-                                mText.Contents = orderNumber.ToString(); // Нумеруем выноски
-
-                                Point3d mTextPosition = new Point3d(blockRef.Position.X + 15, blockRef.Position.Y + blockHeight, 0);
-                                mText.Location = mTextPosition;
-                                leader.MText = mText;
-                                leader.MLeaderStyle = CustomMLeaderStyle(db);
-
-                                Point3d firstPoint = new Point3d(blockRef.Position.X, blockRef.Position.Y, 0);
-                                int idx = leader.AddLeaderLine(firstPoint);
-                                leader.AddFirstVertex(idx, firstPoint);
-
-                                modelSpace.AppendEntity(leader);
-                                tr.AddNewlyCreatedDBObject(leader, true);
+                                // Создание MLeader (мультивыноски)
+                                createMleader(orderNumber, blockRef, db, modelSpace, tr);
 
                                 actualNumber++;
                             }
@@ -201,6 +181,30 @@ namespace AutocadCommandDWG
 
                 return styleId;
             }
+        }
+
+        private void createMleader(int orderNumber, BlockReference blockRef, Database db, BlockTableRecord modelSpace, Transaction tr)
+        {
+            MLeader leader = new MLeader();
+            leader.SetDatabaseDefaults();
+            leader.ContentType = ContentType.MTextContent;
+
+            MText mText = new MText();
+            mText.SetDatabaseDefaults();
+            mText.TextHeight = 20.0;
+            mText.Contents = orderNumber.ToString(); // Нумеруем выноски
+
+            Point3d mTextPosition = new Point3d(blockRef.Position.X + 15, blockRef.Position.Y + GetBlockHeight(blockRef), 0);
+            mText.Location = mTextPosition;
+            leader.MText = mText;
+            leader.MLeaderStyle = CustomMLeaderStyle(db);
+
+            Point3d firstPoint = new Point3d(blockRef.Position.X, blockRef.Position.Y, 0);
+            int idx = leader.AddLeaderLine(firstPoint);
+            leader.AddFirstVertex(idx, firstPoint);
+
+            modelSpace.AppendEntity(leader);
+            tr.AddNewlyCreatedDBObject(leader, true);
         }
     }
 }
