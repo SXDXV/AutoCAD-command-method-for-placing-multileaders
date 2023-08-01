@@ -12,6 +12,7 @@ using System.Data;
 using System.Data.SQLite;
 using System.Xml.Linq;
 using Autodesk.AutoCAD.Colors;
+using System.IO;
 
 // Автор проекта - Шевцов Дмитрий (SXDXV)
 
@@ -29,7 +30,9 @@ namespace AutocadCommandDWG
     public class Command
     {
         Dictionary<int, string> actualBlockOrderDict = new Dictionary<int, string>();
+        Dictionary<string, int> actualBlockOrderDictDublicates = new Dictionary<string, int>();
         Dictionary<int, string> selectedBlockOrderDict = new Dictionary<int, string>();
+        List<Block> blocks = new List<Block>();
 
         /// <summary>
         /// Непосредственно метод взаимодействия с командной строкой, который на данном этапе 
@@ -42,11 +45,11 @@ namespace AutocadCommandDWG
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
 
-            Creating(doc, ed);
 
+            Creating(doc, ed);
             try
             {
-                //Creating(doc, ed);
+                
             }
             catch (System.Exception undefinedError)
             {
@@ -57,6 +60,7 @@ namespace AutocadCommandDWG
 
         private void Creating(Document doc, Editor ed)
         {
+            actualBlockOrderDictDublicates.Clear();
             actualBlockOrderDict.Clear();
             // Создаем фильтр для выбора только блоков
             PromptSelectionOptions opts = new PromptSelectionOptions();
@@ -123,8 +127,6 @@ namespace AutocadCommandDWG
                                 createMleader(orderNumber, blockRef, db, modelSpace, tr);
 
                                 visualiseNumber++;
-
-                                CreateTableWithFields();
                             }
                         }
 
@@ -141,7 +143,16 @@ namespace AutocadCommandDWG
                                     // Проверяем, есть ли значение mTextContents в словаре blockOrderDict
                                     if (selectedBlockOrderDict.ContainsKey(Convert.ToInt32(mTextContents)))
                                     {
-                                        actualBlockOrderDict.Add(Convert.ToInt32(mTextContents), selectedBlockOrderDict[Convert.ToInt32(mTextContents)]);
+                                        try 
+                                        {
+                                            actualBlockOrderDict.Add(Convert.ToInt32(mTextContents), selectedBlockOrderDict[Convert.ToInt32(mTextContents)]);
+                                            actualBlockOrderDictDublicates.Add(selectedBlockOrderDict[Convert.ToInt32(mTextContents)], 1);
+                                        }
+                                        catch
+                                        {
+                                            actualBlockOrderDictDublicates[selectedBlockOrderDict[Convert.ToInt32(mTextContents)]] =
+                                                actualBlockOrderDictDublicates[selectedBlockOrderDict[Convert.ToInt32(mTextContents)]] + 1;
+                                        }
                                     }
                                 }
                             }
@@ -250,10 +261,11 @@ namespace AutocadCommandDWG
             tr.AddNewlyCreatedDBObject(leader, true);
         }
 
-        public void parseDataToArray()
+        public void ParseDataToArray()
         {
+            string appPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             string databasePath = "PartsDataBase.sqlite";
-            string connectionString = $"Data Source={databasePath};Version=3;";
+            string connectionString = $"Data Source={appPath}\\{databasePath};Version=3;";
 
             using (SQLiteConnection connection = new SQLiteConnection(connectionString))
             {
@@ -268,54 +280,43 @@ namespace AutocadCommandDWG
 
                     if (block != null)
                     {
-                        Console.WriteLine($"Number: {number}, Id: {block.Id}, Weight: {block.Weight}, Diameter: {block.Diameter}, Fullname: {block.Fullname}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Number: {number}, Block with Id '{id}' not found in the database.");
+                        blocks.Add(block);
                     }
                 }
             }
         }
 
-        public static Block GetBlockInfo(SQLiteConnection connection, string id)
+        private static Block GetBlockInfo(SQLiteConnection connection, string id)
         {
-            string selectQuery = "SELECT * FROM Parts WHERE ID = @Id;";
+            string selectQuery = "SELECT * FROM 'Parts' WHERE ID = " + '"' + id + '"' + ";";
 
             using (SQLiteCommand command = new SQLiteCommand(selectQuery, connection))
             {
-                command.Parameters.AddWithValue("@Id", id);
 
                 using (SQLiteDataReader reader = command.ExecuteReader())
                 {
-                    if (reader.Read())
+                    Block block = null;
+                    while (reader.Read())
                     {
-                        Block block = new Block
-                        {
-                            Id = reader.GetString(reader.GetOrdinal("ID")),
-                            Weight = reader.GetDouble(reader.GetOrdinal("Weight")),
-                            Diameter = reader.GetInt32(reader.GetOrdinal("Diameter")),
-                            Fullname = reader.GetString(reader.GetOrdinal("FullNameTemplate"))
-                        };
-
-                        return block;
+                        block = new Block(reader.GetValue(0).ToString(), Convert.ToDouble(reader.GetValue(1)), Convert.ToInt32(reader.GetValue(2)), reader.GetValue(3).ToString());
                     }
+                    return block;
                 }
             }
-
-            return null;
         }
 
         public void CreateTableWithFields()
         {
+            ParseDataToArray();
+
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
             // Задаем параметры таблицы
-            int numRows = selectedBlockOrderDict.Count; // Количество строк
+            int numRows = actualBlockOrderDict.Count + 2; // Количество строк
             int numCols = 4; // Количество столбцов
-            double startX = -20000; // Начальная координата X
+            double startX = -20500; // Начальная координата X
             double startY = 26430; // Начальная координата Y
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -336,39 +337,64 @@ namespace AutocadCommandDWG
                 modelSpace.AppendEntity(table);
                 tr.AddNewlyCreatedDBObject(table, true);
 
-                // Задаем заголовки столбцов
-                table.Cells[0, 0].TextString = "№";
-                table.Cells[0, 1].TextString = "Наименование";
-                table.Cells[0, 2].TextString = "Количество";
-                table.Cells[0, 3].TextString = "Масса";
+                int[] customColumnWidths = new int[] { 200, 1000, 200, 200 };
 
                 // Заполняем таблицу данными
-                for (int row = 1; row < numRows; row++)
+                for (int row = 0; row < numRows; row++)
                 {
+                    table.Rows[row].Height = 50;
                     for (int col = 0; col < numCols; col++)
                     {
+                        table.Columns[col].Width = customColumnWidths[col];
+
                         Cell cell = table.Cells[row, col];
                         cell.TextHeight = 20;
 
-                        //// Задаем ширину и высоту ячейки
-                        //cell.Width = cellWidth;
-                        //cell.Height = cellHeight;
-
-                        // Задаем текст для ячейки (пример данных)
-                        switch (col)
+                        if (row == 1)
                         {
-                            case 0:
-                                cell.TextString = row.ToString();
-                                break;
-                            case 1:
-                                cell.TextString = $"Item {row}";
-                                break;
-                            case 2:
-                                cell.TextString = "10";
-                                break;
-                            case 3:
-                                cell.TextString = "5 kg";
-                                break;
+                            switch (col)
+                            {
+                                case 0:
+                                    cell.TextString = "№";
+                                    break;
+                                case 1:
+                                    cell.TextString = "Наименование";
+                                    break;
+                                case 2:
+                                    cell.TextString = "Количество";
+                                    break;
+                                case 3:
+                                    cell.TextString = "Масса";
+                                    break;
+                            }
+                        }
+                        else if (row > 1)
+                        {
+                            int number = row - 1;
+                            switch (col)
+                            {
+                                case 0:
+                                    cell.TextString = number.ToString(); ;
+                                    break;
+                                case 1:
+                                    cell.TextString = blocks[number-1].Fullname
+                                        .Replace("<$D$>", blocks[number - 1].Diameter.ToString())
+                                        .Replace("<$D1$>", blocks[number - 1].Diameter.ToString());
+                                    break;
+                                case 2:
+                                    try
+                                    {
+                                        cell.TextString = actualBlockOrderDictDublicates[blocks[number - 1].Id].ToString();
+                                    }
+                                    catch
+                                    {
+                                        cell.TextString = "1";
+                                    }
+                                    break;
+                                case 3:
+                                    cell.TextString = blocks[number - 1].Weight.ToString();
+                                    break;
+                            }
                         }
                     }
                 }
