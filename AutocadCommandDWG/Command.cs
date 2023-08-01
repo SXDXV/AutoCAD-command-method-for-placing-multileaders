@@ -46,7 +46,7 @@ namespace AutocadCommandDWG
             Editor ed = doc.Editor;
 
 
-            Creating(doc, ed);
+            CreatingBlockReferences(doc, ed);
             try
             {
                 
@@ -58,7 +58,12 @@ namespace AutocadCommandDWG
             }
         }
 
-        private void Creating(Document doc, Editor ed)
+        /// <summary>
+        /// Основной метод работы программы
+        /// </summary>
+        /// <param name="doc">MdiActiveDocument</param>
+        /// <param name="ed">Editor</param>
+        private void CreatingBlockReferences(Document doc, Editor ed)
         {
             actualBlockOrderDictDublicates.Clear();
             actualBlockOrderDict.Clear();
@@ -182,15 +187,13 @@ namespace AutocadCommandDWG
             {
                 ed.WriteMessage("Ошибка при выборе.");
             }
-
-
-            //foreach (var kvp in actualBlockOrderDict)
-            //{
-            //    selectedBlockOrderDict[kvp.Key] = kvp.Value;
-            //}
-            //oldBlockOrderDict.addRange(actualBlockOrderDict);
         }
 
+        /// <summary>
+        /// Получение высоты блока
+        /// </summary>
+        /// <param name="blockRef">Получение BlockReference</param>
+        /// <returns>Ширина</returns>
         private double GetBlockHeight(BlockReference blockRef)
         {
             // Получаем ограничивающий прямоугольник блока
@@ -202,17 +205,11 @@ namespace AutocadCommandDWG
             return height;
         }
 
-        private double GetBlockWidth(BlockReference blockRef)
-        {
-            // Получаем ограничивающий прямоугольник блока
-            Extents3d extents = blockRef.GeometricExtents;
-
-            // Вычисляем ширину блока по оси X
-            double width = extents.MaxPoint.X - extents.MinPoint.X;
-
-            return width;
-        }
-
+        /// <summary>
+        /// Задание кастомного стиля Мультивыноски
+        /// </summary>
+        /// <param name="db">Database</param>
+        /// <returns>Айди стиля</returns>
         private ObjectId CustomMLeaderStyle(Database db)
         {
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -237,6 +234,14 @@ namespace AutocadCommandDWG
             }
         }
 
+        /// <summary>
+        /// Создание непосредственно мультивыноски
+        /// </summary>
+        /// <param name="orderNumber">Порядковый номер</param>
+        /// <param name="blockRef">Информация о родительском блоке</param>
+        /// <param name="db">Database</param>
+        /// <param name="modelSpace">Пространство, внутри которого перебираем элементы</param>
+        /// <param name="tr">Транзакция</param>
         private void createMleader(int orderNumber, BlockReference blockRef, Database db, BlockTableRecord modelSpace, Transaction tr)
         {
             MLeader leader = new MLeader();
@@ -261,6 +266,10 @@ namespace AutocadCommandDWG
             tr.AddNewlyCreatedDBObject(leader, true);
         }
 
+
+        /// <summary>
+        /// Парсинг блоков в List
+        /// </summary>
         public void ParseDataToArray()
         {
             string appPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
@@ -286,6 +295,13 @@ namespace AutocadCommandDWG
             }
         }
 
+
+        /// <summary>
+        /// Получение информации о блоке
+        /// </summary>
+        /// <param name="connection">Подключение</param>
+        /// <param name="id">Айди</param>
+        /// <returns>Возвращает объект класса Block</returns>
         private static Block GetBlockInfo(SQLiteConnection connection, string id)
         {
             string selectQuery = "SELECT * FROM 'Parts' WHERE ID = " + '"' + id + '"' + ";";
@@ -305,6 +321,10 @@ namespace AutocadCommandDWG
             }
         }
 
+
+        /// <summary>
+        /// Отрисовка таблицы
+        /// </summary>
         public void CreateTableWithFields()
         {
             ParseDataToArray();
