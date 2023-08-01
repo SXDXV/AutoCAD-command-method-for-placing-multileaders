@@ -79,39 +79,7 @@ namespace AutocadCommandDWG
                         BlockTableRecord modelSpace = tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
                         // Переменная для хранения порядкового номера
-                        int actualNumber = 1;
                         int visualiseNumber = 1;
-
-                        foreach (ObjectId objectId in modelSpace)
-                        {
-                            if (objectId.ObjectClass == RXObject.GetClass(typeof(MLeader)))
-                            {
-                                MLeader leader = tr.GetObject(objectId, OpenMode.ForWrite) as MLeader;
-                                if (leader != null)
-                                {
-                                    // Обработка мультивыносок
-                                    string mTextContents = leader.MText.Contents;
-
-                                    // Проверяем, есть ли значение mTextContents в словаре blockOrderDict
-                                    if (selectedBlockOrderDict.ContainsKey(Convert.ToInt32(mTextContents)))
-                                    {
-                                        actualBlockOrderDict.Add(actualNumber, selectedBlockOrderDict[Convert.ToInt32(mTextContents)]);
-
-                                        //Entity ent = tr.GetObject(leader.ObjectId, OpenMode.ForWrite) as Entity;
-                                        //ent.Erase();
-
-                                        //MText mText = new MText();
-                                        //mText.SetDatabaseDefaults();
-                                        //mText.TextHeight = 20.0;
-                                        //mText.Contents = actualNumber.ToString();
-
-                                        //leader.MText = mText;
-
-                                        actualNumber++;
-                                    }
-                                }
-                            }
-                        }
 
                         foreach (ObjectId objectId in selectionSet.GetObjectIds())
                         {
@@ -156,9 +124,30 @@ namespace AutocadCommandDWG
 
                                 visualiseNumber++;
 
-                                CreateTableWithFields(blockRef);
+                                CreateTableWithFields();
                             }
                         }
+
+                        foreach (ObjectId objectId in modelSpace)
+                        {
+                            if (objectId.ObjectClass == RXObject.GetClass(typeof(MLeader)))
+                            {
+                                MLeader leader = tr.GetObject(objectId, OpenMode.ForWrite) as MLeader;
+                                if (leader != null)
+                                {
+                                    // Обработка мультивыносок
+                                    string mTextContents = leader.MText.Contents;
+
+                                    // Проверяем, есть ли значение mTextContents в словаре blockOrderDict
+                                    if (selectedBlockOrderDict.ContainsKey(Convert.ToInt32(mTextContents)))
+                                    {
+                                        actualBlockOrderDict.Add(Convert.ToInt32(mTextContents), selectedBlockOrderDict[Convert.ToInt32(mTextContents)]);
+                                    }
+                                }
+                            }
+                        }
+
+                        CreateTableWithFields();
 
                         tr.Commit();
                     }
@@ -261,19 +250,73 @@ namespace AutocadCommandDWG
             tr.AddNewlyCreatedDBObject(leader, true);
         }
 
-        public void CreateTableWithFields(BlockReference blockRef)
+        public void parseDataToArray()
+        {
+            string databasePath = "PartsDataBase.sqlite";
+            string connectionString = $"Data Source={databasePath};Version=3;";
+
+            using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+            {
+                connection.Open();
+
+                foreach (KeyValuePair<int, string> kvp in selectedBlockOrderDict)
+                {
+                    int number = kvp.Key;
+                    string id = kvp.Value;
+
+                    Block block = GetBlockInfo(connection, id);
+
+                    if (block != null)
+                    {
+                        Console.WriteLine($"Number: {number}, Id: {block.Id}, Weight: {block.Weight}, Diameter: {block.Diameter}, Fullname: {block.Fullname}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Number: {number}, Block with Id '{id}' not found in the database.");
+                    }
+                }
+            }
+        }
+
+        public static Block GetBlockInfo(SQLiteConnection connection, string id)
+        {
+            string selectQuery = "SELECT * FROM Parts WHERE ID = @Id;";
+
+            using (SQLiteCommand command = new SQLiteCommand(selectQuery, connection))
+            {
+                command.Parameters.AddWithValue("@Id", id);
+
+                using (SQLiteDataReader reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        Block block = new Block
+                        {
+                            Id = reader.GetString(reader.GetOrdinal("ID")),
+                            Weight = reader.GetDouble(reader.GetOrdinal("Weight")),
+                            Diameter = reader.GetInt32(reader.GetOrdinal("Diameter")),
+                            Fullname = reader.GetString(reader.GetOrdinal("FullNameTemplate"))
+                        };
+
+                        return block;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        public void CreateTableWithFields()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
             // Задаем параметры таблицы
-            int numRows = 3; // Количество строк
+            int numRows = selectedBlockOrderDict.Count; // Количество строк
             int numCols = 4; // Количество столбцов
-            double cellWidth = 50.0; // Ширина ячейки
-            double cellHeight = 10.0; // Высота ячейки
-            double startX = blockRef.Position.X; // Начальная координата X
-            double startY = blockRef.Position.Y - 200.0; // Начальная координата Y
+            double startX = -20000; // Начальная координата X
+            double startY = 26430; // Начальная координата Y
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {

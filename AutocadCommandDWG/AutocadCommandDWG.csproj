@@ -114,6 +114,7 @@
   <ItemGroup>
     <Compile Include="Block.cs" />
     <Compile Include="Command.cs" />
+    <Compile Include="CommandHelpers.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
